@@ -49,9 +49,8 @@ module AXI4LiteMaster#
         output  wire                            M_AXI_BREADY
     );
 
-    localparam  W_ADDR      =   4'b0000;
-    localparam  W_DATA      =   4'b0001;
-    localparam  W_DONE      =   4'b0010;
+    localparam  W_ADDR_DATA =   4'b0000;
+    localparam  W_DONE      =   4'b0001;
 
     localparam  R_ADDR      =   4'b0000;
     localparam  R_DATA      =   4'b0001;
@@ -79,9 +78,9 @@ module AXI4LiteMaster#
     assign M_AXI_ARADDR     = axi_araddr;
     assign M_AXI_ARVALID    = axi_arvalid;
     assign M_AXI_RREADY     = axi_rready;
-    assign M_AXI_AWADDR     = axi_awaddr;
+    assign M_AXI_AWADDR     = write_addr;
     assign M_AXI_AWVALID    = axi_awvalid;
-    assign M_AXI_WDATA      = axi_wdata;
+    assign M_AXI_WDATA      = write_data;
     assign M_AXI_WVALID     = axi_wvalid;
     assign M_AXI_WSTRB      = axi_wstrb;
     assign M_AXI_BREADY     = axi_bready;
@@ -90,10 +89,11 @@ module AXI4LiteMaster#
     assign write_done       = w_done;
     assign read_done        = r_done;
 
+
     // WRITE PROCESS
     always @(posedge m_axi_aclk or negedge m_axi_aresetn) begin
         if (!m_axi_aresetn) begin
-            state_write <=  W_ADDR;
+            state_write <=  W_ADDR_DATA;
             axi_awaddr  <=  0;
             axi_awvalid <=  1'b0;
             axi_wdata   <=  0;
@@ -102,59 +102,45 @@ module AXI4LiteMaster#
             axi_bready  <=  1'b0;
             w_done      <=  1'b0;
         end
-        else if (write_ena == 1'b1) begin
+        else if (write_ena) begin
+            axi_awaddr  <=  write_addr;
+            axi_wdata   <=  write_data;
             case (state_write)
-                W_ADDR : begin
+                W_ADDR_DATA : begin
                     axi_awvalid <=  1'b1;
-                    axi_bready  <=  1'b0;
+                    axi_wvalid  <=  1'b1;
+                    axi_wstrb   <=  4'b1111;
                     w_done      <=  1'b0;
-                    state_write <=  W_DATA;
-                    axi_awaddr  <=  write_addr;
-                    
-                    if (M_AXI_AWREADY) begin
+                    if (M_AXI_AWREADY && M_AXI_WREADY) begin
                         axi_awvalid <=  1'b0;
-                        axi_awaddr  <=  0;
-
-                        axi_wdata   <=  write_data;
-                        axi_wvalid  <=  1'b1;
-                        axi_wstrb   <=  4'b1111;
-                    end
-                    else begin
-                        state_write <=  W_ADDR;
-                        axi_wdata   <=  0;
                         axi_wvalid  <=  1'b0;
-                        axi_wstrb   <=  0;
-                    end
-                end 
-
-                W_DATA : begin
-                    if (M_AXI_WREADY) begin
-                        state_write <=  W_DONE;
-                        axi_wdata   <=  0;
-                        axi_wvalid  <=  1'b0;
-                        axi_wstrb   <=  0;
                         axi_bready  <=  1'b1;
-                        
+                        axi_awaddr  <=  write_addr;
+                        axi_wdata   <=  write_data;
+                        state_write <=  W_DONE;
                     end
                     else begin
-                        state_write <=  W_DATA;
-                        axi_wdata   <=  axi_wdata;
-                        axi_wvalid  <=  axi_wvalid;
-                        axi_wstrb   <=  axi_wstrb;
-                        axi_bready  <=  1'b0;
+                        state_write <=  W_ADDR_DATA;
                     end
                 end 
 
                 W_DONE : begin
-                    state_write <=  W_ADDR;
-                    axi_awvalid <=  1'b1;
-                    w_done  <=  1'b1;
-                    axi_awaddr  <=  write_addr;
-
-                end
+                    if (M_AXI_BRESP == 0 && M_AXI_BVALID) begin
+                        state_write <=  W_ADDR_DATA;
+                        axi_awaddr  <=  write_addr;
+                        axi_wdata   <=  write_data;
+                        axi_awvalid <=  1'b1;
+                        axi_wvalid  <=  1'b1;
+                        axi_bready  <=  1'b0;
+                        w_done      <=  1'b1;
+                    end
+                    else begin
+                        state_write <=  W_DONE;
+                    end
+                end 
 
                 default: begin
-                    state_write <=  W_ADDR;
+                    state_write <=  W_ADDR_DATA;
                     axi_awaddr  <=  0;
                     axi_awvalid <=  1'b0;
                     axi_wdata   <=  0;
@@ -162,11 +148,10 @@ module AXI4LiteMaster#
                     axi_wstrb   <=  0;
                     axi_bready  <=  1'b0;
                 end 
-                
             endcase
         end
         else begin
-            state_write <=  W_ADDR;
+            state_write <=  W_ADDR_DATA;
             axi_awaddr  <=  0;
             axi_awvalid <=  1'b0;
             axi_wdata   <=  0;
@@ -192,13 +177,11 @@ module AXI4LiteMaster#
                 R_ADDR : begin
                     axi_araddr  <=  read_addr;
                     axi_arvalid <=  1'b1;
-                    axi_rready  <=  1'b0;
+                    axi_rready  <=  1'b1;
                     r_done      <=  1'b0;
                     if(M_AXI_ARREADY) begin
                         state_read  <=  R_DATA;
-                        axi_araddr  <=  0;
                         axi_arvalid <=  1'b0;
-                        axi_rready  <=  1'b1;
                     end
                     else begin
                         state_read  <=  R_ADDR;
@@ -206,22 +189,17 @@ module AXI4LiteMaster#
                 end 
 
                 R_DATA : begin
-                    axi_araddr  <=  0;
                     if (M_AXI_RVALID) begin
-                        state_read  <=  R_DONE;
+                        state_read  <=  R_ADDR;
                         r_read_data <=  M_AXI_RDATA;
-                        axi_rready  <=  1'b0;
+                        axi_araddr  <=  read_addr;
+                        axi_arvalid <=  1'b1;
+                        axi_rready  <=  1'b1;
+                        r_done      <=  1'b1;
                     end
                     else begin
                         state_read  <=  R_DATA;
                     end
-                end
-
-                R_DONE : begin
-                    state_read  <=  R_ADDR;
-                    axi_araddr  <=  read_addr;
-                    axi_arvalid <=  1'b1;
-                    r_done      <=  1'b1;
                 end
 
                 default: begin
@@ -230,7 +208,7 @@ module AXI4LiteMaster#
                     axi_arvalid <=  1'b0;
                     axi_rready  <=  1'b0;
                     r_done      <=  1'b0;
-                    r_read_data   <=  0;
+                    r_read_data <=  0;
                 end
             endcase
         end
